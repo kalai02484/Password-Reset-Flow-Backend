@@ -94,9 +94,9 @@ If you did not request this, please ignore this email.`
       message: "Reset password link sent to your email",
     });
 
-  } catch (error) {
+  } catch (error) { 
     console.error(error);
-    res.status(500).json({ message: "Internal server error" });
+    res.status(500).json({ message: "Internal server error", error: error.message });
   }
 };
 
