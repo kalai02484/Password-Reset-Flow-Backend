@@ -2,76 +2,148 @@ import User from "../models/userModel.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
+import sendEmail from "../utils/mailer.js";
 
 dotenv.config();
 
-export const registerUser = async (req, res) => {
+export const Register = async (req, res) => {
+  const { name, email, password } = req.body;
   try {
-    const { name, email, password } = req.body;
+    if (name === "" || email === "" || password === "")
+      return res.status(400).json({ message: "All fields are required" });
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res
-        .status(400)
-        .json({ message: "User already Exists, go to Login" });
+      return res.status(400).json({ message: "User already exists" });
     }
 
-    const hashpassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    //console.log(hashpassword);
+    const user = new User({ name, email, password: hashedPassword });
+    await user.save();
 
-    const newUser = new User({ name, email, password: hashpassword });
-    await newUser.save();
+    res
+      .status(201)
+      .json({ message: "User registered successfully", data: user });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const Login = async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    if (email === "" || password === "")
+      return res.status(400).json({ message: "All fields are required" });
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res
+        .status(404)
+        .json({ message: "User not found, Please Register." });
+    }
+    const isPasswordCorrect = await bcrypt.compare(password, user.password);
+    if (!isPasswordCorrect) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+    const token = jwt.sign({ _id: user._id }, process.env.JWT_SECRET);
     res
       .status(200)
-      .json({ message: "User Registered Successfully", data: newUser });
+      .json({ message: "Login Successfull", token: token, role: user.role });
   } catch (error) {
-    res.status(503).json({
-      message: "Server Error, Unable to Register User",
-      error: error.message,
-    });
+    console.error(error);
+    res.status(500).json({ message: "Internal server error" });
   }
 };
 
+export const ForgetPassword = async (req, res) => {
+  const { email } = req.body;
 
-
-export const loginUser = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const existingUser = await User.findOne({ email });
-    if (!existingUser) {
-      res.status(404).json({ message: "User Not found" });
-    }
-    const passwordMatch = await bcrypt.compare(password, existingUser.password);
-    if (!passwordMatch) {
-      res
-        .status(404)
-        .json({ message: "Password Mismatch, Please Enter Correct Password" });
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
     }
 
-    //jwt token generation
-    const token = jwt.sign({ _id: existingUser._id }, process.env.JWT_SECRET, {
-      expiresIn: "1h",
+    // Generate reset token
+    const resetToken = jwt.sign(
+      { _id: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+
+    // Create reset URL
+    const resetURL = `${process.env.FRONTEND_URL}/reset-password/${user._id}/${resetToken}`;
+
+    // Send email
+    await sendEmail(
+      user.email,
+      "Reset Password",
+      `Click the link below to reset your password:
+
+${resetURL}
+
+This link will expire in 1 hour.
+
+If you did not request this, please ignore this email.`
+    );
+
+    res.status(200).json({
+      message: "Reset password link sent to your email",
     });
 
-    existingUser.token = token;
-
-    await existingUser.save();
-
-    res.status(200).json({ message: "User Login Successfull", token: token });
   } catch (error) {
-    res.status(503).json({
-      message: "Server Error, Unable to Login",
-      error: error.message,
-    });
+    console.error(error);
+    res.status(500).json({ message: "Internal server error" });
   }
 };
 
-export const getUser = async (req, res) => {
+export const ResetPassword = async (req, res) => {
+  const { id, token } = req.params;
+  const { password } = req.body;
+
   try {
-    const user = await User.find();
-    res.status(200).json({ message: "Admin User", data: user });
+
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Check if token belongs to same user
+    if (decoded._id !== id) {
+      return res.status(400).json({ message: "Invalid reset link" });
+    }
+
+    const user = await User.findById(id);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Update password
+    const UpdatedUser = await User.findByIdAndUpdate(id, {
+      password: hashedPassword,
+    });
+
+    res.status(200).json({
+      message: "Password reset successful", data: UpdatedUser
+    });
+
   } catch (error) {
-    res.status(503).json({ message: "Unable to fetch the data" });
+
+    if (error.name === "TokenExpiredError") {
+      return res.status(400).json({ message: "Reset link expired" });
+    }
+
+    if (error.name === "JsonWebTokenError") {
+      return res.status(400).json({ message: "Invalid reset token" });
+    }
+
+    console.error(error);
+    res.status(500).json({ message: "Internal server error" });
   }
 };
+
