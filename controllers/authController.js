@@ -95,7 +95,7 @@ If you did not request this, please ignore this email.`
     });
 
   } catch (error) { 
-    console.error(error);
+    console.log(error);
     res.status(500).json({ message: "Internal server error", error: error.message });
   }
 };

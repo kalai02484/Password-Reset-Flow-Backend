@@ -9,13 +9,7 @@ dotenv.config();
 const app = express();
 
 app.use(express.json());
-app.use(cors({
-  origin: [
-    "http://localhost:5174",
-    "https://shimmering-kangaroo-d74615.netlify.app/"
-  ],
-  credentials: true
-}));
+app.use(cors());
 
 connectDB();
 
